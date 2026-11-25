@@ -2,10 +2,23 @@
 name: Generar pronóstico IUVPY
 
 on:
-  push:
-    branches:
-      - main
+  schedule:
+    - cron: "0 12 * * *" # CAMS 00Z - 09:00 Paraguay
+    - cron: "0 19 * * *" # GFS 12Z - 16:00 Paraguay
+    - cron: "0 23 * * *" # CAMS 12Z - 20:00 Paraguay
+
   workflow_dispatch:
+    inputs:
+      modelo:
+        description: "Modelo a ejecutar manualmente"
+        required: true
+        type: choice
+        default: todos
+        options:
+          - todos
+          - cams00
+          - gfs12
+          - cams12
 
 permissions:
   contents: read
@@ -29,12 +42,9 @@ jobs:
       MPLBACKEND: Agg
 
     steps:
-
-      # 1. DESCARGAR REPOSITORIO
       - name: Descargar repositorio
         uses: actions/checkout@v4
 
-      # 2. CONFIGURAR PYTHON
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
@@ -42,23 +52,20 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
-      # 3. CONFIGURAR FECHA UTC
       - name: Configurar fecha UTC
         run: |
           echo "RUN_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
           date -u
 
-      # 4. INSTALAR DEPENDENCIAS
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 5. CONFIGURAR CREDENCIALES CAMS
       - name: Configurar credenciales CAMS
         run: |
           if [ -z "$ADS_API_KEY" ]; then
-            echo "ERROR: Falta el secret ADS_API_KEY"
+            echo "ERROR: Falta ADS_API_KEY"
             exit 1
           fi
 
@@ -67,17 +74,13 @@ jobs:
 
           chmod 600 "$HOME/.cdsapirc"
 
-          echo "Credenciales CAMS configuradas."
-
-      # 6. VERIFICAR ESTRUCTURA
-      - name: Verificar estructura del proyecto
+      - name: Verificar estructura
         run: |
           set -e
 
           test -f run_iuvpy.py
           test -f drive_sync.py
           test -f requirements.txt
-
           test -f scripts/gfs_iuv.py
           test -f scripts/cams_iuv.py
 
@@ -85,81 +88,70 @@ jobs:
           test -f assets/Departamentos_Paraguay.shx
           test -f assets/Departamentos_Paraguay.dbf
           test -f assets/Departamentos_Paraguay.prj
-
           test -f assets/NORTE.png
           test -f site/index.html
 
           echo "Estructura verificada."
 
-      # 7. VERIFICAR CREDENCIALES GOOGLE DRIVE
       - name: Verificar credenciales Google Drive
         run: |
           set -e
 
-          if [ -z "$GOOGLE_DRIVE_FOLDER_ID" ]; then
+          test -n "$GOOGLE_DRIVE_FOLDER_ID" || {
             echo "ERROR: Falta GOOGLE_DRIVE_FOLDER_ID"
             exit 1
-          fi
+          }
 
-          if [ -z "$GOOGLE_REFRESH_TOKEN" ]; then
+          test -n "$GOOGLE_REFRESH_TOKEN" || {
             echo "ERROR: Falta GOOGLE_REFRESH_TOKEN"
             exit 1
-          fi
+          }
 
-          if [ -z "$GOOGLE_CLIENT_ID" ]; then
+          test -n "$GOOGLE_CLIENT_ID" || {
             echo "ERROR: Falta GOOGLE_CLIENT_ID"
             exit 1
-          fi
+          }
 
-          if [ -z "$GOOGLE_CLIENT_SECRET" ]; then
+          test -n "$GOOGLE_CLIENT_SECRET" || {
             echo "ERROR: Falta GOOGLE_CLIENT_SECRET"
             exit 1
-          fi
+          }
 
           echo "Credenciales Google Drive disponibles."
 
-      # 8. EJECUTAR GFS 12Z
-      - name: Ejecutar GFS 12Z
-        env:
-          IUVPY_MODEL: gfs
-          RUN_HOUR: "12"
-        run: |
-          export RUN_DATE=$(date -u -d "yesterday" +%Y%m%d)
-
-          echo "Ejecutando GFS 12Z para: $RUN_DATE"
-
-          python run_iuvpy.py
-
-      # 9. EJECUTAR CAMS 00Z
+      # CAMS 00Z: datos del día actual
       - name: Ejecutar CAMS 00Z
+        if: (github.event_name == 'schedule' && github.event.schedule == '0 12 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'cams00' || inputs.modelo == 'todos'))
         env:
           IUVPY_MODEL: cams
           RUN_HOUR: "00"
         run: |
-          export RUN_DATE=$(date -u +%Y%m%d)
-
-          echo "Ejecutando CAMS 00Z para: $RUN_DATE"
-
+          echo "Ejecutando CAMS 00Z para $RUN_DATE"
           python run_iuvpy.py
 
-      # 10. EJECUTAR CAMS 12Z
+      # GFS 12Z: datos del día actual
+      - name: Ejecutar GFS 12Z
+        if: (github.event_name == 'schedule' && github.event.schedule == '0 19 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'gfs12' || inputs.modelo == 'todos'))
+        env:
+          IUVPY_MODEL: gfs
+          RUN_HOUR: "12"
+        run: |
+          echo "Ejecutando GFS 12Z para $RUN_DATE"
+          python run_iuvpy.py
+
+      # CAMS 12Z: datos del día actual
       - name: Ejecutar CAMS 12Z
+        if: (github.event_name == 'schedule' && github.event.schedule == '0 23 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'cams12' || inputs.modelo == 'todos'))
         env:
           IUVPY_MODEL: cams
           RUN_HOUR: "12"
         run: |
-          export RUN_DATE=$(date -u -d "yesterday" +%Y%m%d)
-
-          echo "Ejecutando CAMS 12Z para: $RUN_DATE"
-
+          echo "Ejecutando CAMS 12Z para $RUN_DATE"
           python run_iuvpy.py
 
-      # 11. VERIFICAR MAPAS
       - name: Verificar mapas publicados
         run: |
           set -e
-
-          echo "Verificando mapas..."
 
           test -s site/index.html
           test -s site/maps/GFS_latest.png
@@ -170,13 +162,9 @@ jobs:
           echo "Mapas disponibles:"
           ls -lh site/maps
 
-          echo "Todos los mapas están disponibles."
-
-      # 12. CONFIGURAR GITHUB PAGES
       - name: Configurar GitHub Pages
         uses: actions/configure-pages@v5
 
-      # 13. SUBIR ARTEFACTO DE PUBLICACIÓN
       - name: Subir archivos para GitHub Pages
         uses: actions/upload-pages-artifact@v3
         with:
@@ -184,15 +172,11 @@ jobs:
           path: ./site
           retention-days: 1
 
-      # 14. PUBLICAR GITHUB PAGES
       - name: Publicar GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
 
-      # 15. MOSTRAR URL
-      - name: Mostrar URL de la web
+      - name: Mostrar URL
         run: |
-          echo "===================================="
-          echo "IUVPY PUBLICADO CORRECTAMENTE"
-          echo "===================================="
+          echo "IUVPY publicado correctamente"
           echo "${{ steps.deployment.outputs.page_url }}"
