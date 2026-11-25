@@ -1,4 +1,5 @@
 
+
 name: Publicar web IUVPY
 
 on:
@@ -18,27 +19,35 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
-
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
 
     steps:
       - name: Descargar repositorio
         uses: actions/checkout@v4
 
+      - name: Verificar archivos de la web
+        run: |
+          echo "Contenido de la carpeta site:"
+          ls -la site
+
+          if [ ! -f site/index.html ]; then
+            echo "ERROR: No existe site/index.html"
+            exit 1
+          fi
+
       - name: Configurar GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Subir archivos de la página
-        uses: actions/upload-pages-artifact@v4
+      - name: Preparar archivos para publicación
+        uses: actions/upload-pages-artifact@v3
         with:
           path: ./site
-          name: github-pages
 
-      - name: Publicar página
+      - name: Publicar GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-        with:
-          artifact_name: github-pages
+
