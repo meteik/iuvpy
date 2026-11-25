@@ -14,5 +14,4 @@ Ver [README_SETUP.md](README_SETUP.md) para cargar archivos, configurar secretos
 GitHub Pages se publica desde GitHub Actions. Tras habilitar Pages con origen **GitHub Actions**, la página estará en:
 https://meteik.github.io/iuvpy/
 
-## Seguridad
-Nunca guardar claves API, `.cdsapirc`, `credentials.json` ni tokens OAuth en el repositorio.
+
