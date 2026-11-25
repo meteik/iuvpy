@@ -1,53 +1,56 @@
 
-
-name: Publicar web IUVPY
+name: Generar pronóstico IUVPY
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+
+  schedule:
+    - cron: '15 0 * * *'
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: github-pages
-  cancel-in-progress: true
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
+  generar:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Descargar el repositorio
       - name: Descargar repositorio
         uses: actions/checkout@v4
 
-      - name: Verificar archivos de la web
-        run: |
-          echo "Contenido de la carpeta site:"
-          ls -la site
-
-          if [ ! -f site/index.html ]; then
-            echo "ERROR: No existe site/index.html"
-            exit 1
-          fi
-
-      - name: Configurar GitHub Pages
-        uses: actions/configure-pages@v5
-
-      - name: Preparar archivos para publicación
-        uses: actions/upload-pages-artifact@v3
+      # 2. Configurar Python
+      - name: Configurar Python
+        uses: actions/setup-python@v5
         with:
-          path: ./site
+          python-version: '3.11'
 
-      - name: Publicar GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      # 3. Instalar librerías
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install gdown
 
+      # 4. Descargar DEM desde Google Drive
+      - name: Descargar DEM_PY.tif
+        env:
+          TIF_DRIVE_ID: ${{ secrets.TIF_DRIVE_ID }}
+        run: |
+          mkdir -p assets
+
+          gdown --fuzzy "https://drive.google.com/file/d/${TIF_DRIVE_ID}/view?usp=sharing" \
+            -O assets/DEM_PY.tif
+
+          ls -lh assets/DEM_PY.tif
+          test -s assets/DEM_PY.tif
+
+      # 5. Ejecutar procesamiento
+      - name: Ejecutar IUVPY
+        run: python run_iuvpy.py
+
+      # 6. Verificar mapas generados
+      - name: Verificar resultados
+        run: |
+          echo "Archivos generados:"
+          find site -type f
