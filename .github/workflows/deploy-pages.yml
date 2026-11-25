@@ -3,9 +3,9 @@ name: Generar pronóstico IUVPY
 
 on:
   schedule:
-    - cron: "0 12 * * *" # CAMS 00Z - 09:00 Paraguay
-    - cron: "0 19 * * *" # GFS 12Z - 16:00 Paraguay
-    - cron: "0 23 * * *" # CAMS 12Z - 20:00 Paraguay
+    - cron: "0 12 * * *"
+    - cron: "0 19 * * *"
+    - cron: "0 23 * * *"
   workflow_dispatch:
     inputs:
       modelo:
@@ -37,17 +37,15 @@ jobs:
       MPLBACKEND: Agg
 
     steps:
-      - name: Descargar repositorio
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Configurar Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements.txt
 
-      - name: Configurar fecha UTC
+      - name: Fecha UTC
         run: echo "RUN_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
 
       - name: Instalar dependencias
@@ -55,13 +53,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Configurar credenciales CAMS
+      - name: Configurar CAMS
         run: |
           test -n "$ADS_API_KEY" || { echo "Falta ADS_API_KEY"; exit 1; }
           printf 'url: https://ads.atmosphere.copernicus.eu/api\nkey: %s\n' "$ADS_API_KEY" > "$HOME/.cdsapirc"
           chmod 600 "$HOME/.cdsapirc"
 
-      - name: Verificar estructura y secretos
+      - name: Verificar archivos y secretos
         run: |
           set -e
           for f in run_iuvpy.py drive_sync.py requirements.txt scripts/gfs_iuv.py scripts/cams_iuv.py assets/Departamentos_Paraguay.shp assets/Departamentos_Paraguay.shx assets/Departamentos_Paraguay.dbf assets/Departamentos_Paraguay.prj assets/NORTE.png site/index.html; do
@@ -101,7 +99,7 @@ jobs:
           export RUN_DATE
           python run_iuvpy.py
 
-      - name: Verificar mapas publicados
+      - name: Verificar mapas
         run: |
           set -e
           test -s site/index.html
@@ -109,13 +107,11 @@ jobs:
           test -s site/maps/CAMS_00_latest.png
           test -s site/maps/CAMS_12_latest.png
           test -s site/status.json
-          ls -lh site/maps
 
-      - name: Configurar GitHub Pages
-        uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v5
 
-      - name: Subir archivos para GitHub Pages
-        uses: actions/upload-pages-artifact@v4
+      - name: Subir artefacto
+        uses: actions/upload-pages-artifact@v3
         with:
           name: github-pages
           path: ./site
