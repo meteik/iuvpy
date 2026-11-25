@@ -252,6 +252,7 @@ dias = [
 
 
 archivos = []
+dias_disponibles = []
 
 
 print()
@@ -344,6 +345,7 @@ for d in dias:
     archivos.append(
         ruta
     )
+    dias_disponibles.append(int(d[1:]))
 
 
 print()
@@ -377,8 +379,8 @@ print("=" * 80)
 datasets = []
 
 
-for i, a in enumerate(
-    archivos
+for i, (a, dia_archivo) in enumerate(
+    zip(archivos, dias_disponibles)
 ):
 
     print(
@@ -419,7 +421,7 @@ for i, a in enumerate(
     ds_tmp = ds_tmp.expand_dims(
 
         dia=[
-            i + 1
+            dia_archivo
         ]
 
     )
@@ -722,15 +724,10 @@ grz = 0.00005
 # MAPAS
 # =============================================================================
 
-for d in range(
-    min(
-        4,
-        len(archivos)
-    )
-):
+for map_idx, dia_forecast in enumerate(dias_disponibles):
 
     print(
-        f"\nGenerando mapa {d + 1}/4..."
+        f"\nGenerando mapa día {dia_forecast}/4..."
     )
 
 
@@ -741,8 +738,8 @@ for d in range(
 
     Z = ds_py[
         "uvi"
-    ].isel(
-        dia=d
+    ].sel(
+        dia=dia_forecast
     ).values
 
 
@@ -885,7 +882,7 @@ for d in range(
     )
 
 
-    ax = axes[d]
+    ax = axes[map_idx]
 
 
     ax.add_collection(
@@ -915,7 +912,7 @@ for d in range(
     fecha_real = (
         fecha_run
         + timedelta(
-            days=d + 1
+            days=dia_forecast
         )
     )
 
