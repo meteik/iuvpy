@@ -1,38 +1,3 @@
-
-name: Generar pronóstico IUVPY
-
-on:
-  schedule:
-    - cron: "0 12 * * *" # CAMS 00Z - 09:00 Paraguay
-    - cron: "0 19 * * *" # GFS 12Z - 16:00 Paraguay
-    - cron: "0 23 * * *" # CAMS 12Z - 20:00 Paraguay
-
-  workflow_dispatch:
-    inputs:
-      modelo:
-        description: "Modelo a ejecutar manualmente"
-        required: true
-        type: choice
-        default: todos
-        options:
-          - todos
-          - cams00
-          - gfs12
-          - cams12
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: github-pages
-  cancel-in-progress: true
-
-jobs:
-  generar:
-    runs-on: ubuntu-latest
-
     env:
       GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
       GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
@@ -64,102 +29,56 @@ jobs:
 
       - name: Configurar credenciales CAMS
         run: |
-          if [ -z "$ADS_API_KEY" ]; then
-            echo "ERROR: Falta ADS_API_KEY"
-            exit 1
-          fi
-
-          printf 'url: https://ads.atmosphere.copernicus.eu/api\nkey: %s\n' \
-            "$ADS_API_KEY" > "$HOME/.cdsapirc"
-
+          test -n "$ADS_API_KEY" || { echo "ERROR: Falta ADS_API_KEY"; exit 1; }
+          printf 'url: https://ads.atmosphere.copernicus.eu/api\nkey: %s\n' "$ADS_API_KEY" > "$HOME/.cdsapirc"
           chmod 600 "$HOME/.cdsapirc"
 
-      - name: Verificar estructura
+      - name: Verificar estructura y secretos
         run: |
           set -e
+          for f in run_iuvpy.py drive_sync.py requirements.txt scripts/gfs_iuv.py scripts/cams_iuv.py assets/Departamentos_Paraguay.shp assets/Departamentos_Paraguay.shx assets/Departamentos_Paraguay.dbf assets/Departamentos_Paraguay.prj assets/NORTE.png site/index.html; do
+            test -f "$f" || { echo "Falta archivo: $f"; exit 1; }
+          done
+          for v in GOOGLE_DRIVE_FOLDER_ID GOOGLE_REFRESH_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET; do
+            test -n "${!v}" || { echo "ERROR: Falta secreto $v"; exit 1; }
+          done
+          echo "Estructura y credenciales verificadas."
 
-          test -f run_iuvpy.py
-          test -f drive_sync.py
-          test -f requirements.txt
-          test -f scripts/gfs_iuv.py
-          test -f scripts/cams_iuv.py
-
-          test -f assets/Departamentos_Paraguay.shp
-          test -f assets/Departamentos_Paraguay.shx
-          test -f assets/Departamentos_Paraguay.dbf
-          test -f assets/Departamentos_Paraguay.prj
-          test -f assets/NORTE.png
-          test -f site/index.html
-
-          echo "Estructura verificada."
-
-      - name: Verificar credenciales Google Drive
-        run: |
-          set -e
-
-          test -n "$GOOGLE_DRIVE_FOLDER_ID" || {
-            echo "ERROR: Falta GOOGLE_DRIVE_FOLDER_ID"
-            exit 1
-          }
-
-          test -n "$GOOGLE_REFRESH_TOKEN" || {
-            echo "ERROR: Falta GOOGLE_REFRESH_TOKEN"
-            exit 1
-          }
-
-          test -n "$GOOGLE_CLIENT_ID" || {
-            echo "ERROR: Falta GOOGLE_CLIENT_ID"
-            exit 1
-          }
-
-          test -n "$GOOGLE_CLIENT_SECRET" || {
-            echo "ERROR: Falta GOOGLE_CLIENT_SECRET"
-            exit 1
-          }
-
-          echo "Credenciales Google Drive disponibles."
-
-      # CAMS 00Z: datos del día actual
       - name: Ejecutar CAMS 00Z
         if: (github.event_name == 'schedule' && github.event.schedule == '0 12 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'cams00' || inputs.modelo == 'todos'))
         env:
           IUVPY_MODEL: cams
           RUN_HOUR: "00"
-        run: |
-          echo "Ejecutando CAMS 00Z para $RUN_DATE"
-          python run_iuvpy.py
+        run: python run_iuvpy.py
 
-      # GFS 12Z: datos del día actual
       - name: Ejecutar GFS 12Z
         if: (github.event_name == 'schedule' && github.event.schedule == '0 19 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'gfs12' || inputs.modelo == 'todos'))
         env:
           IUVPY_MODEL: gfs
           RUN_HOUR: "12"
-        run: |
-          echo "Ejecutando GFS 12Z para $RUN_DATE"
-          python run_iuvpy.py
+        run: python run_iuvpy.py
 
-      # CAMS 12Z: datos del día actual
       - name: Ejecutar CAMS 12Z
         if: (github.event_name == 'schedule' && github.event.schedule == '0 23 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'cams12' || inputs.modelo == 'todos'))
         env:
           IUVPY_MODEL: cams
           RUN_HOUR: "12"
         run: |
-          echo "Ejecutando CAMS 12Z para $RUN_DATE"
+          # En ejecución manual, impedir CAMS 12Z antes de las 23 UTC.
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$(date -u +%H)" -lt 23 ]; then
+            echo "CAMS 12Z se ejecuta a partir de las 23 UTC (20:00 Paraguay)."
+            exit 1
+          fi
           python run_iuvpy.py
 
       - name: Verificar mapas publicados
         run: |
           set -e
-
           test -s site/index.html
           test -s site/maps/GFS_latest.png
           test -s site/maps/CAMS_00_latest.png
           test -s site/maps/CAMS_12_latest.png
           test -s site/status.json
-
-          echo "Mapas disponibles:"
           ls -lh site/maps
 
       - name: Configurar GitHub Pages
@@ -178,5 +97,4 @@ jobs:
 
       - name: Mostrar URL
         run: |
-          echo "IUVPY publicado correctamente"
-          echo "${{ steps.deployment.outputs.page_url }}"
+          echo "IUVPY publicado: ${{ steps.deployment.outputs.page_url }}"
