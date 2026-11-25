@@ -20,29 +20,21 @@ jobs:
   generar:
     runs-on: ubuntu-latest
 
-    # =====================================================
-    # CREDENCIALES Y VARIABLES DEL PROYECTO
-    # =====================================================
     env:
       GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
       GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-
       ADS_API_KEY: ${{ secrets.ADS_API_KEY }}
-
       MPLBACKEND: Agg
 
     steps:
-      # =====================================================
+
       # 1. DESCARGAR REPOSITORIO
-      # =====================================================
       - name: Descargar repositorio
         uses: actions/checkout@v4
 
-      # =====================================================
       # 2. CONFIGURAR PYTHON
-      # =====================================================
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
@@ -50,34 +42,25 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
-      # =====================================================
       # 3. CONFIGURAR FECHA UTC
-      # =====================================================
       - name: Configurar fecha UTC
         run: |
           echo "RUN_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
-          echo "Fecha UTC:"
           date -u
 
-      # =====================================================
       # 4. INSTALAR DEPENDENCIAS
-      # =====================================================
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # =====================================================
       # 5. CONFIGURAR CREDENCIALES CAMS
-      # =====================================================
       - name: Configurar credenciales CAMS
         run: |
           if [ -z "$ADS_API_KEY" ]; then
             echo "ERROR: Falta el secret ADS_API_KEY"
             exit 1
           fi
-
-          mkdir -p "$HOME"
 
           printf 'url: https://ads.atmosphere.copernicus.eu/api\nkey: %s\n' \
             "$ADS_API_KEY" > "$HOME/.cdsapirc"
@@ -86,12 +69,10 @@ jobs:
 
           echo "Credenciales CAMS configuradas."
 
-      # =====================================================
-      # 6. VERIFICAR ESTRUCTURA DEL PROYECTO
-      # =====================================================
+      # 6. VERIFICAR ESTRUCTURA
       - name: Verificar estructura del proyecto
         run: |
-          echo "Verificando archivos..."
+          set -e
 
           test -f run_iuvpy.py
           test -f drive_sync.py
@@ -104,21 +85,17 @@ jobs:
           test -f assets/Departamentos_Paraguay.shx
           test -f assets/Departamentos_Paraguay.dbf
           test -f assets/Departamentos_Paraguay.prj
-          test -f assets/Departamentos_Paraguay.sbn
-          test -f assets/Departamentos_Paraguay.sbx
-          test -f assets/Departamentos_Paraguay.shp
 
           test -f assets/NORTE.png
-
           test -f site/index.html
 
           echo "Estructura verificada."
 
-      # =====================================================
-      # 7. VERIFICAR SECRET DE GOOGLE DRIVE
-      # =====================================================
+      # 7. VERIFICAR CREDENCIALES GOOGLE DRIVE
       - name: Verificar credenciales Google Drive
         run: |
+          set -e
+
           if [ -z "$GOOGLE_DRIVE_FOLDER_ID" ]; then
             echo "ERROR: Falta GOOGLE_DRIVE_FOLDER_ID"
             exit 1
@@ -141,109 +118,78 @@ jobs:
 
           echo "Credenciales Google Drive disponibles."
 
-      # =====================================================
       # 8. EJECUTAR GFS 12Z
-      # =====================================================
-      #- name: Ejecutar GFS 12Z
-        #env:
-          #IUVPY_MODEL: gfs
-          #RUN_HOUR: "12"
-        #run: |
-          #echo "Ejecutando GFS..."
-          #python run_iuvpy.py
-
       - name: Ejecutar GFS 12Z
         env:
           IUVPY_MODEL: gfs
           RUN_HOUR: "12"
         run: |
           export RUN_DATE=$(date -u -d "yesterday" +%Y%m%d)
+
           echo "Ejecutando GFS 12Z para: $RUN_DATE"
-          python run_iuvpy.py   
 
-      # =====================================================
+          python run_iuvpy.py
+
       # 9. EJECUTAR CAMS 00Z
-      # =====================================================
-      #- name: Ejecutar CAMS 00Z
-        #env:
-          #IUVPY_MODEL: cams
-          #RUN_HOUR: "00"
-        #run: |
-          #echo "Ejecutando CAMS 00Z..."
-          #python run_iuvpy.py
-
       - name: Ejecutar CAMS 00Z
         env:
           IUVPY_MODEL: cams
           RUN_HOUR: "00"
         run: |
           export RUN_DATE=$(date -u +%Y%m%d)
+
           echo "Ejecutando CAMS 00Z para: $RUN_DATE"
+
           python run_iuvpy.py
 
-
-
-      # =====================================================
       # 10. EJECUTAR CAMS 12Z
-      # =====================================================
-      #- name: Ejecutar CAMS 12Z
-        #env:
-          #IUVPY_MODEL: cams
-          #RUN_HOUR: "12"
-        #run: |
-          #echo "Ejecutando CAMS 12Z..."
-          #python run_iuvpy.py
-
       - name: Ejecutar CAMS 12Z
         env:
           IUVPY_MODEL: cams
           RUN_HOUR: "12"
         run: |
           export RUN_DATE=$(date -u -d "yesterday" +%Y%m%d)
+
           echo "Ejecutando CAMS 12Z para: $RUN_DATE"
+
           python run_iuvpy.py
 
-      # =====================================================
-      # 11. VERIFICAR MAPAS PUBLICADOS
-      # =====================================================
+      # 11. VERIFICAR MAPAS
       - name: Verificar mapas publicados
         run: |
-          echo "Mapas disponibles:"
+          set -e
 
-          ls -lh site/maps
+          echo "Verificando mapas..."
 
+          test -s site/index.html
           test -s site/maps/GFS_latest.png
           test -s site/maps/CAMS_00_latest.png
           test -s site/maps/CAMS_12_latest.png
-
           test -s site/status.json
+
+          echo "Mapas disponibles:"
+          ls -lh site/maps
 
           echo "Todos los mapas están disponibles."
 
-      # =====================================================
       # 12. CONFIGURAR GITHUB PAGES
-      # =====================================================
       - name: Configurar GitHub Pages
         uses: actions/configure-pages@v5
 
-      # =====================================================
-      # 13. PREPARAR ARCHIVOS PARA PUBLICACIÓN
-      # =====================================================
-      - name: Preparar archivos para publicación
+      # 13. SUBIR ARTEFACTO DE PUBLICACIÓN
+      - name: Subir archivos para GitHub Pages
         uses: actions/upload-pages-artifact@v3
         with:
+          name: github-pages
           path: ./site
+          retention-days: 1
 
-      # =====================================================
       # 14. PUBLICAR GITHUB PAGES
-      # =====================================================
       - name: Publicar GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
 
-      # =====================================================
-      # 15. MOSTRAR URL PUBLICADA
-      # =====================================================
+      # 15. MOSTRAR URL
       - name: Mostrar URL de la web
         run: |
           echo "===================================="
