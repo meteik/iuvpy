@@ -31,7 +31,8 @@ from matplotlib.cm import ScalarMappable
 # -----------------------------------------------------------------------------
 
 repo_dir = os.path.dirname(os.path.abspath(__file__))
-base_dir = os.environ.get("IUVPY_OUTPUT_DIR", os.path.join(repo_dir, "output"))
+project_dir = os.path.abspath(os.path.join(repo_dir, ".."))
+base_dir = os.environ.get("IUVPY_OUTPUT_DIR", os.path.join(project_dir, "output"))
 
 
 # -----------------------------------------------------------------------------
@@ -154,7 +155,7 @@ os.makedirs(
 # =============================================================================
 
 shp_py = os.path.join(
-    repo_dir,
+    project_dir,
     "assets",
     "Departamentos_Paraguay.shp"
 )
@@ -170,7 +171,7 @@ dem_py = os.path.join(
 
 
 logo_py = os.path.join(
-    repo_dir,
+    project_dir,
     "assets",
     "NORTE.png"
 )
@@ -549,23 +550,6 @@ ds = xr.concat(
 
 
 # =============================================================================
-# CONCATENAR
-# =============================================================================
-
-ds = xr.concat(
-
-    daily,
-
-    dim="dia"
-
-).to_dataset(
-
-    name="uvi"
-
-)
-
-
-# =============================================================================
 # LONGITUDES
 # =============================================================================
 
@@ -732,7 +716,8 @@ if not os.path.exists(
 ):
 
     raise FileNotFoundError(
-        shp_py
+        f"No se encontró el shapefile de Paraguay: {shp_py}. "
+        "Debe estar en la carpeta assets del proyecto y acompañarse de .shx y .dbf."
     )
 
 
