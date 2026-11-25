@@ -96,11 +96,20 @@ jobs:
           IUVPY_MODEL: cams
           RUN_HOUR: "12"
         run: |
-          # En ejecución manual, impedir CAMS 12Z antes de las 23 UTC.
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$(date -u +%H)" -lt 23 ]; then
-            echo "CAMS 12Z se ejecuta a partir de las 23 UTC (20:00 Paraguay)."
-            exit 1
+          HORA_UTC=$(date -u +%H)
+
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$HORA_UTC" -lt 23 ]; then
+            RUN_DATE=$(date -u -d "yesterday" +%Y%m%d)
+            echo "Ejecución manual antes de las 23 UTC."
+            echo "Se utilizará CAMS 12Z del día anterior: $RUN_DATE"
+          else
+            RUN_DATE=$(date -u +%Y%m%d)
+            echo "Se utilizará CAMS 12Z del día actual: $RUN_DATE"
           fi
+
+          echo "RUN_DATE=$RUN_DATE" >> "$GITHUB_ENV"
+          export RUN_DATE
+
           python run_iuvpy.py
 
       - name: Verificar mapas publicados
