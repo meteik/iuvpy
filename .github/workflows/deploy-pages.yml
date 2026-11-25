@@ -3,19 +3,37 @@ name: Generar pronóstico IUVPY
 
 on:
   workflow_dispatch:
+    inputs:
+      run_date:
+        description: "Fecha de corrida YYYYMMDD (vacío = hoy UTC)"
+        required: false
+        type: string
 
   schedule:
-    - cron: '15 0 * * *'
+    - cron: "30 23 * * *"
+
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: iuvpy-generation
+  cancel-in-progress: false
 
 jobs:
   generar:
     runs-on: ubuntu-latest
 
+    environment:
+      name: github-pages
+
     steps:
-      # 1. Descargar el repositorio
+      # 1. Descargar repositorio
       - name: Descargar repositorio
         uses: actions/checkout@v4
 
@@ -23,34 +41,112 @@ jobs:
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
+          cache: pip
 
-      # 3. Instalar librerías
+      # 3. Instalar dependencias
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install gdown
 
-      # 4. Descargar DEM desde Google Drive
-      - name: Descargar DEM_PY.tif
+      # 4. Configurar fecha de corrida
+      - name: Configurar fecha UTC
         env:
-          TIF_DRIVE_ID: ${{ secrets.TIF_DRIVE_ID }}
+          INPUT_RUN_DATE: ${{ inputs.run_date }}
         run: |
-          mkdir -p assets
+          if [ -n "$INPUT_RUN_DATE" ]; then
+            RUN_DATE="$INPUT_RUN_DATE"
+          else
+            RUN_DATE=$(date -u +%Y%m%d)
+          fi
 
-          gdown --fuzzy "https://drive.google.com/file/d/${TIF_DRIVE_ID}/view?usp=sharing" \
-            -O assets/DEM_PY.tif
+          if [[ ! "$RUN_DATE" =~ ^[0-9]{8}$ ]]; then
+            echo "ERROR: RUN_DATE debe tener formato YYYYMMDD"
+            exit 1
+          fi
 
-          ls -lh assets/DEM_PY.tif
-          test -s assets/DEM_PY.tif
+          echo "RUN_DATE=$RUN_DATE" >> "$GITHUB_ENV"
+          echo "Fecha de corrida: $RUN_DATE"
 
-      # 5. Ejecutar procesamiento
-      - name: Ejecutar IUVPY
-        run: python run_iuvpy.py
-
-      # 6. Verificar mapas generados
-      - name: Verificar resultados
+      # 5. Configurar CAMS
+      - name: Configurar credenciales CAMS
+        env:
+          ADS_API_KEY: ${{ secrets.ADS_API_KEY }}
         run: |
-          echo "Archivos generados:"
-          find site -type f
+          if [ -z "$ADS_API_KEY" ]; then
+            echo "ERROR: Falta el secreto ADS_API_KEY"
+            exit 1
+          fi
+
+          cat > "$HOME/.cdsapirc" <<EOF
+          url: https://ads.atmosphere.copernicus.eu/api
+          key: ${ADS_API_KEY}
+          EOF
+
+          chmod 600 "$HOME/.cdsapirc"
+
+      # 6. Verificar archivos
+      - name: Verificar estructura del proyecto
+        run: |
+          test -f run_iuvpy.py
+          test -f drive_sync.py
+          test -f scripts/gfs_iuv.py
+          test -f scripts/cams_iuv.py
+          test -f site/index.html
+
+          echo "Estructura del proyecto correcta"
+
+      # 7. Ejecutar GFS 12Z
+      - name: Ejecutar GFS 12Z
+        env:
+          IUVPY_MODEL: gfs
+          RUN_DATE: ${{ env.RUN_DATE }}
+          RUN_HOUR: "12"
+          MPLBACKEND: Agg
+        run: |
+          python run_iuvpy.py
+
+      # 8. Ejecutar CAMS 00Z
+      - name: Ejecutar CAMS 00Z
+        env:
+          IUVPY_MODEL: cams
+          RUN_DATE: ${{ env.RUN_DATE }}
+          RUN_HOUR: "00"
+          MPLBACKEND: Agg
+        run: |
+          python run_iuvpy.py
+
+      # 9. Ejecutar CAMS 12Z
+      - name: Ejecutar CAMS 12Z
+        env:
+          IUVPY_MODEL: cams
+          RUN_DATE: ${{ env.RUN_DATE }}
+          RUN_HOUR: "12"
+          MPLBACKEND: Agg
+        run: |
+          python run_iuvpy.py
+
+      # 10. Verificar mapas
+      - name: Verificar mapas publicados
+        run: |
+          echo "Mapas disponibles:"
+          find site/maps -maxdepth 1 -type f -print
+
+          echo "Estado de modelos:"
+          cat site/status.json
+
+      # 11. Configurar GitHub Pages
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
+
+      # 12. Subir página
+      - name: Preparar archivos para publicación
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./site
+
+      # 13. Publicar
+      - name: Publicar GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
