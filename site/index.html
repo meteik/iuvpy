@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IUVPY | Pronóstico del Índice UV de Paraguay</title>
+<style>
+:root{color-scheme:dark;--bg:#08111f;--panel:#111f32;--text:#eef5ff;--muted:#a8bad2;--accent:#57d5ff}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,Segoe UI,sans-serif;background:radial-gradient(circle at top,#142a45,var(--bg) 55%);color:var(--text)}
+header{padding:42px 20px 26px;text-align:center}header h1{margin:0;font-size:clamp(2rem,5vw,3.4rem);letter-spacing:.04em}header p{color:var(--muted);max-width:720px;margin:12px auto}
+main{max-width:1200px;margin:auto;padding:0 18px 40px}.status{text-align:center;color:var(--muted);margin:10px 0 24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:18px}
+.card{background:linear-gradient(145deg,#15263b,#0d192a);border:1px solid #263d59;border-radius:18px;overflow:hidden;box-shadow:0 14px 35px #0003}
+.card h2{font-size:1.15rem;margin:0;padding:18px 20px 6px}.meta{padding:0 20px 15px;color:var(--muted);font-size:.9rem}
+.card a{display:block;background:#050b13}.card img{display:block;width:100%;height:auto;min-height:180px;object-fit:contain}
+.note{color:var(--muted);text-align:center;margin:24px 0 0;font-size:.9rem}
+footer{text-align:center;padding:22px;color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<header>
+  <h1>IUVPY</h1>
+  <p>Pronóstico del Índice Ultravioleta para Paraguay</p>
+  <p>Mapas de mediodía solar · GFS y CAMS/ECMWF · Actualización automática</p>
+</header>
+<main>
+  <div class="status" id="updated">Consultando actualización…</div>
+  <div class="grid">
+    <section class="card"><h2>GFS · Corrida 12Z</h2><div class="meta" id="gfs-meta">Último mapa disponible</div><a href="maps/GFS_latest.png" target="_blank"><img src="maps/GFS_latest.png" alt="Pronóstico IUV GFS de cuatro días" onerror="this.style.display='none'"></a></section>
+    <section class="card"><h2>CAMS · Corrida 00Z</h2><div class="meta" id="cams00-meta">Último mapa disponible</div><a href="maps/CAMS_00_latest.png" target="_blank"><img src="maps/CAMS_00_latest.png" alt="Pronóstico IUV CAMS 00Z de cuatro días" onerror="this.style.display='none'"></a></section>
+    <section class="card"><h2>CAMS · Corrida 12Z</h2><div class="meta" id="cams12-meta">Último mapa disponible</div><a href="maps/CAMS_12_latest.png" target="_blank"><img src="maps/CAMS_12_latest.png" alt="Pronóstico IUV CAMS 12Z de cuatro días" onerror="this.style.display='none'"></a></section>
+  </div>
+  <p class="note">Los horarios de ejecución son UTC. La publicación puede demorarse si los datos del modelo todavía no están disponibles.</p>
+</main>
+<footer>DMH Paraguay · IUVPY</footer>
+<script>
+fetch('status.json?cache='+Date.now()).then(r=>r.ok?r.json():{}).then(s=>{
+ const keys=[['gfs','GFS 12Z'],['cams_00','CAMS 00Z'],['cams_12','CAMS 12Z']];
+ let times=[];
+ for(const [key,label] of keys){const d=s[key];const el=document.getElementById(key.replace('_','')+'-meta')||document.getElementById(key+'-meta');
+ if(d){const target=key==='gfs'?'gfs-meta':key==='cams_00'?'cams00-meta':'cams12-meta';document.getElementById(target).textContent='Corrida '+d.run_date+' '+d.run_hour_utc+'Z · Generado '+d.generated_utc;times.push(d.generated_utc)}}
+ document.getElementById('updated').textContent=times.length?'Mapas actualizados · '+times.sort().at(-1):'Aún no se publicaron mapas automáticos.';
+}).catch(()=>document.getElementById('updated').textContent='Sitio listo; esperando el primer pronóstico.');
+</script>
+</body>
+</html>
