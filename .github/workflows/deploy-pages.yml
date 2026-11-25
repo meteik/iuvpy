@@ -126,7 +126,6 @@ jobs:
         uses: actions/deploy-pages@v4
         with:
           artifact_name: github-pages
-          
 
       - name: Mostrar URL
         run: echo "IUVPY publicado: ${{ steps.deployment.outputs.page_url }}"
