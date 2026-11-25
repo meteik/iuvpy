@@ -144,34 +144,63 @@ jobs:
       # =====================================================
       # 8. EJECUTAR GFS 12Z
       # =====================================================
+      #- name: Ejecutar GFS 12Z
+        #env:
+          #IUVPY_MODEL: gfs
+          #RUN_HOUR: "12"
+        #run: |
+          #echo "Ejecutando GFS..."
+          #python run_iuvpy.py
+
       - name: Ejecutar GFS 12Z
         env:
           IUVPY_MODEL: gfs
           RUN_HOUR: "12"
         run: |
-          echo "Ejecutando GFS..."
-          python run_iuvpy.py
+          export RUN_DATE=$(date -u -d "yesterday" +%Y%m%d)
+          echo "Ejecutando GFS 12Z para: $RUN_DATE"
+          python run_iuvpy.py   
 
       # =====================================================
       # 9. EJECUTAR CAMS 00Z
       # =====================================================
+      #- name: Ejecutar CAMS 00Z
+        #env:
+          #IUVPY_MODEL: cams
+          #RUN_HOUR: "00"
+        #run: |
+          #echo "Ejecutando CAMS 00Z..."
+          #python run_iuvpy.py
+
       - name: Ejecutar CAMS 00Z
         env:
           IUVPY_MODEL: cams
           RUN_HOUR: "00"
         run: |
-          echo "Ejecutando CAMS 00Z..."
+          export RUN_DATE=$(date -u +%Y%m%d)
+          echo "Ejecutando CAMS 00Z para: $RUN_DATE"
           python run_iuvpy.py
+
+
 
       # =====================================================
       # 10. EJECUTAR CAMS 12Z
       # =====================================================
+      #- name: Ejecutar CAMS 12Z
+        #env:
+          #IUVPY_MODEL: cams
+          #RUN_HOUR: "12"
+        #run: |
+          #echo "Ejecutando CAMS 12Z..."
+          #python run_iuvpy.py
+
       - name: Ejecutar CAMS 12Z
         env:
           IUVPY_MODEL: cams
           RUN_HOUR: "12"
         run: |
-          echo "Ejecutando CAMS 12Z..."
+          export RUN_DATE=$(date -u -d "yesterday" +%Y%m%d)
+          echo "Ejecutando CAMS 12Z para: $RUN_DATE"
           python run_iuvpy.py
 
       # =====================================================
