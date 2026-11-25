@@ -319,90 +319,46 @@ def add_logo(
 # DESCARGA CAMS
 # =============================================================================
 
-def descargar_cams(
-    outfile
-):
+def descargar_cams(outfile):
+    """Descarga CAMS UV biologically effective dose desde ADS.
 
+    CAMS ADS entrega la grilla nativa regular de 0.4 grados.
+    No incluir el parámetro "grid". En la API de ADS el formato
+    se solicita mediante "format", no "data_format".
+    """
     print()
     print("=" * 80)
     print("                    DESCARGA CAMS")
     print("=" * 80)
 
-
     c = cdsapi.Client()
 
+    fecha_cds = f"{fecha[:4]}-{fecha[4:6]}-{fecha[6:8]}"
+    leadtimes = [str(h) for h in range(0, 121)]
 
     request = {
-
-        "variable": [
-
-            "uv_biologically_effective_dose"
-
-        ],
-
-        "date": [
-
-            f"{fecha[:4]}-"
-            f"{fecha[4:6]}-"
-            f"{fecha[6:8]}"
-
-        ],
-
-        "time": [
-
-            f"{hora}:00"
-
-        ],
-
-        "leadtime_hour": [
-
-            str(h)
-
-            for h in range(
-                0,
-                121
-            )
-
-        ],
-
-        "type": [
-
-            "forecast"
-
-        ],
-
-        "data_format": "grib"
-
+        "variable": "uv_biologically_effective_dose",
+        "date": fecha_cds,
+        "time": f"{hora}:00",
+        "leadtime_hour": leadtimes,
+        "type": "forecast",
+        "format": "grib",
     }
-
 
     print()
     print("Solicitud enviada a CDS:")
-
+    print(f"Fecha: {fecha_cds}")
+    print(f"Hora: {hora}:00 UTC")
+    print("Leadtime: 0–120 h")
+    print("Formato: GRIB")
+    print("Grilla: nativa ADS (0.4°); no se envía 'grid'")
+    print("Parámetros:", request)
     print()
-    print(
-        f"Fecha : {fecha}"
-    )
-
-    print(
-        f"Hora  : {hora}Z"
-    )
-
-    print(
-        "Leadtime: 0–120 h"
-    )
-
-    print()
-
 
     c.retrieve(
-
         "cams-global-atmospheric-composition-forecasts",
-
         request,
-
-        outfile
-
+        outfile,
     )
 
 
