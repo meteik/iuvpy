@@ -1,23 +1,25 @@
-
 name: Generar pronóstico IUVPY
 
 on:
   schedule:
-    - cron: "0 12 * * *"
-    - cron: "0 19 * * *"
-    - cron: "0 23 * * *"
+    - cron: "0 12 * * *" # CAMS 00Z - 09:00 Paraguay
+    - cron: "0 19 * * *" # GFS 12Z - 16:00 Paraguay
+    - cron: "0 23 * * *" # CAMS 12Z - 20:00 Paraguay
   workflow_dispatch:
     inputs:
       modelo:
-        description: "Modelo a ejecutar"
+        description: "Modelo a ejecutar manualmente"
         required: true
         type: choice
         default: todos
-        options: [todos, cams00, gfs12, cams12]
+        options:
+          - todos
+          - cams00
+          - gfs12
+          - cams12
 
 permissions:
   contents: read
-  actions: read
   pages: write
   id-token: write
 
@@ -37,37 +39,42 @@ jobs:
       MPLBACKEND: Agg
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Configurar Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements.txt
 
-      - name: Fecha UTC
-        run: echo "RUN_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
+      - name: Configurar fecha UTC
+        run: |
+          echo "RUN_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
+          date -u
 
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Configurar CAMS
+      - name: Configurar credenciales CAMS
         run: |
-          test -n "$ADS_API_KEY" || { echo "Falta ADS_API_KEY"; exit 1; }
+          test -n "$ADS_API_KEY" || { echo "ERROR: Falta ADS_API_KEY"; exit 1; }
           printf 'url: https://ads.atmosphere.copernicus.eu/api\nkey: %s\n' "$ADS_API_KEY" > "$HOME/.cdsapirc"
           chmod 600 "$HOME/.cdsapirc"
 
-      - name: Verificar archivos y secretos
+      - name: Verificar estructura y secretos
         run: |
           set -e
           for f in run_iuvpy.py drive_sync.py requirements.txt scripts/gfs_iuv.py scripts/cams_iuv.py assets/Departamentos_Paraguay.shp assets/Departamentos_Paraguay.shx assets/Departamentos_Paraguay.dbf assets/Departamentos_Paraguay.prj assets/NORTE.png site/index.html; do
             test -f "$f" || { echo "Falta archivo: $f"; exit 1; }
           done
           for v in GOOGLE_DRIVE_FOLDER_ID GOOGLE_REFRESH_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET; do
-            test -n "${!v}" || { echo "Falta secreto $v"; exit 1; }
+            test -n "${!v}" || { echo "ERROR: Falta secreto $v"; exit 1; }
           done
+          echo "Estructura y credenciales verificadas."
 
       - name: Ejecutar CAMS 00Z
         if: (github.event_name == 'schedule' && github.event.schedule == '0 12 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'cams00' || inputs.modelo == 'todos'))
@@ -90,16 +97,22 @@ jobs:
           RUN_HOUR: "12"
         run: |
           HORA_UTC=$(date -u +%H)
+
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$HORA_UTC" -lt 23 ]; then
             RUN_DATE=$(date -u -d "yesterday" +%Y%m%d)
+            echo "Ejecución manual antes de las 23 UTC."
+            echo "Se utilizará CAMS 12Z del día anterior: $RUN_DATE"
           else
             RUN_DATE=$(date -u +%Y%m%d)
+            echo "Se utilizará CAMS 12Z del día actual: $RUN_DATE"
           fi
+
           echo "RUN_DATE=$RUN_DATE" >> "$GITHUB_ENV"
           export RUN_DATE
+
           python run_iuvpy.py
 
-      - name: Verificar mapas
+      - name: Verificar mapas publicados
         run: |
           set -e
           test -s site/index.html
@@ -107,10 +120,12 @@ jobs:
           test -s site/maps/CAMS_00_latest.png
           test -s site/maps/CAMS_12_latest.png
           test -s site/status.json
+          ls -lh site/maps
 
-      - uses: actions/configure-pages@v5
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
 
-      - name: Subir artefacto
+      - name: Subir archivos para GitHub Pages
         uses: actions/upload-pages-artifact@v3
         with:
           name: github-pages
@@ -120,8 +135,7 @@ jobs:
       - name: Publicar GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-        with:
-          artifact_name: github-pages
 
       - name: Mostrar URL
-        run: echo "IUVPY publicado: ${{ steps.deployment.outputs.page_url }}"
+        run: |
+          echo "IUVPY publicado: ${{ steps.deployment.outputs.page_url }}"
