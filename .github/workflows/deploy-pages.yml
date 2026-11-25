@@ -1,3 +1,35 @@
+name: Generar pronóstico IUVPY
+
+on:
+  schedule:
+    - cron: "0 12 * * *" # CAMS 00Z - 09:00 Paraguay
+    - cron: "0 19 * * *" # GFS 12Z - 16:00 Paraguay
+    - cron: "0 23 * * *" # CAMS 12Z - 20:00 Paraguay
+  workflow_dispatch:
+    inputs:
+      modelo:
+        description: "Modelo a ejecutar manualmente"
+        required: true
+        type: choice
+        default: todos
+        options:
+          - todos
+          - cams00
+          - gfs12
+          - cams12
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  generar:
+    runs-on: ubuntu-latest
     env:
       GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
       GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
