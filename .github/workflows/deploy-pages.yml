@@ -2,19 +2,10 @@
 name: Generar pronóstico IUVPY
 
 on:
-  workflow_dispatch:
-    inputs:
-      run_date:
-        description: "Fecha de corrida YYYYMMDD (vacío = hoy UTC)"
-        required: false
-        type: string
-
-  schedule:
-    - cron: "30 23 * * *"
-
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -22,131 +13,211 @@ permissions:
   id-token: write
 
 concurrency:
-  group: iuvpy-generation
-  cancel-in-progress: false
+  group: github-pages
+  cancel-in-progress: true
 
 jobs:
   generar:
     runs-on: ubuntu-latest
 
-    environment:
-      name: github-pages
+    # =====================================================
+    # CREDENCIALES Y VARIABLES DEL PROYECTO
+    # =====================================================
+    env:
+      GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+      GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+
+      ADS_API_KEY: ${{ secrets.ADS_API_KEY }}
+
+      MPLBACKEND: Agg
 
     steps:
-      # 1. Descargar repositorio
+      # =====================================================
+      # 1. DESCARGAR REPOSITORIO
+      # =====================================================
       - name: Descargar repositorio
         uses: actions/checkout@v4
 
-      # 2. Configurar Python
+      # =====================================================
+      # 2. CONFIGURAR PYTHON
+      # =====================================================
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements.txt
 
-      # 3. Instalar dependencias
+      # =====================================================
+      # 3. CONFIGURAR FECHA UTC
+      # =====================================================
+      - name: Configurar fecha UTC
+        run: |
+          echo "RUN_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
+          echo "Fecha UTC:"
+          date -u
+
+      # =====================================================
+      # 4. INSTALAR DEPENDENCIAS
+      # =====================================================
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 4. Configurar fecha de corrida
-      - name: Configurar fecha UTC
-        env:
-          INPUT_RUN_DATE: ${{ inputs.run_date }}
-        run: |
-          if [ -n "$INPUT_RUN_DATE" ]; then
-            RUN_DATE="$INPUT_RUN_DATE"
-          else
-            RUN_DATE=$(date -u +%Y%m%d)
-          fi
-
-          if [[ ! "$RUN_DATE" =~ ^[0-9]{8}$ ]]; then
-            echo "ERROR: RUN_DATE debe tener formato YYYYMMDD"
-            exit 1
-          fi
-
-          echo "RUN_DATE=$RUN_DATE" >> "$GITHUB_ENV"
-          echo "Fecha de corrida: $RUN_DATE"
-
-      # 5. Configurar CAMS
+      # =====================================================
+      # 5. CONFIGURAR CREDENCIALES CAMS
+      # =====================================================
       - name: Configurar credenciales CAMS
-        env:
-          ADS_API_KEY: ${{ secrets.ADS_API_KEY }}
         run: |
           if [ -z "$ADS_API_KEY" ]; then
-            echo "ERROR: Falta el secreto ADS_API_KEY"
+            echo "ERROR: Falta el secret ADS_API_KEY"
             exit 1
           fi
 
-          cat > "$HOME/.cdsapirc" <<EOF
-          url: https://ads.atmosphere.copernicus.eu/api
-          key: ${ADS_API_KEY}
-          EOF
+          mkdir -p "$HOME"
+
+          printf 'url: https://ads.atmosphere.copernicus.eu/api\nkey: %s\n' \
+            "$ADS_API_KEY" > "$HOME/.cdsapirc"
 
           chmod 600 "$HOME/.cdsapirc"
 
-      # 6. Verificar archivos
+          echo "Credenciales CAMS configuradas."
+
+      # =====================================================
+      # 6. VERIFICAR ESTRUCTURA DEL PROYECTO
+      # =====================================================
       - name: Verificar estructura del proyecto
         run: |
+          echo "Verificando archivos..."
+
           test -f run_iuvpy.py
           test -f drive_sync.py
+          test -f requirements.txt
+
           test -f scripts/gfs_iuv.py
           test -f scripts/cams_iuv.py
+
+          test -f assets/Departamentos_Paraguay.shp
+          test -f assets/Departamentos_Paraguay.shx
+          test -f assets/Departamentos_Paraguay.dbf
+          test -f assets/Departamentos_Paraguay.prj
+          test -f assets/Departamentos_Paraguay.sbn
+          test -f assets/Departamentos_Paraguay.sbx
+          test -f assets/Departamentos_Paraguay.shp
+
+          test -f assets/NORTE.png
+
           test -f site/index.html
 
-          echo "Estructura del proyecto correcta"
+          echo "Estructura verificada."
 
-      # 7. Ejecutar GFS 12Z
+      # =====================================================
+      # 7. VERIFICAR SECRET DE GOOGLE DRIVE
+      # =====================================================
+      - name: Verificar credenciales Google Drive
+        run: |
+          if [ -z "$GOOGLE_DRIVE_FOLDER_ID" ]; then
+            echo "ERROR: Falta GOOGLE_DRIVE_FOLDER_ID"
+            exit 1
+          fi
+
+          if [ -z "$GOOGLE_REFRESH_TOKEN" ]; then
+            echo "ERROR: Falta GOOGLE_REFRESH_TOKEN"
+            exit 1
+          fi
+
+          if [ -z "$GOOGLE_CLIENT_ID" ]; then
+            echo "ERROR: Falta GOOGLE_CLIENT_ID"
+            exit 1
+          fi
+
+          if [ -z "$GOOGLE_CLIENT_SECRET" ]; then
+            echo "ERROR: Falta GOOGLE_CLIENT_SECRET"
+            exit 1
+          fi
+
+          echo "Credenciales Google Drive disponibles."
+
+      # =====================================================
+      # 8. EJECUTAR GFS 12Z
+      # =====================================================
       - name: Ejecutar GFS 12Z
         env:
           IUVPY_MODEL: gfs
-          RUN_DATE: ${{ env.RUN_DATE }}
           RUN_HOUR: "12"
-          MPLBACKEND: Agg
         run: |
+          echo "Ejecutando GFS..."
           python run_iuvpy.py
 
-      # 8. Ejecutar CAMS 00Z
+      # =====================================================
+      # 9. EJECUTAR CAMS 00Z
+      # =====================================================
       - name: Ejecutar CAMS 00Z
         env:
           IUVPY_MODEL: cams
-          RUN_DATE: ${{ env.RUN_DATE }}
           RUN_HOUR: "00"
-          MPLBACKEND: Agg
         run: |
+          echo "Ejecutando CAMS 00Z..."
           python run_iuvpy.py
 
-      # 9. Ejecutar CAMS 12Z
+      # =====================================================
+      # 10. EJECUTAR CAMS 12Z
+      # =====================================================
       - name: Ejecutar CAMS 12Z
         env:
           IUVPY_MODEL: cams
-          RUN_DATE: ${{ env.RUN_DATE }}
           RUN_HOUR: "12"
-          MPLBACKEND: Agg
         run: |
+          echo "Ejecutando CAMS 12Z..."
           python run_iuvpy.py
 
-      # 10. Verificar mapas
+      # =====================================================
+      # 11. VERIFICAR MAPAS PUBLICADOS
+      # =====================================================
       - name: Verificar mapas publicados
         run: |
           echo "Mapas disponibles:"
-          find site/maps -maxdepth 1 -type f -print
 
-          echo "Estado de modelos:"
-          cat site/status.json
+          ls -lh site/maps
 
-      # 11. Configurar GitHub Pages
+          test -s site/maps/GFS_latest.png
+          test -s site/maps/CAMS_00_latest.png
+          test -s site/maps/CAMS_12_latest.png
+
+          test -s site/status.json
+
+          echo "Todos los mapas están disponibles."
+
+      # =====================================================
+      # 12. CONFIGURAR GITHUB PAGES
+      # =====================================================
       - name: Configurar GitHub Pages
         uses: actions/configure-pages@v5
 
-      # 12. Subir página
+      # =====================================================
+      # 13. PREPARAR ARCHIVOS PARA PUBLICACIÓN
+      # =====================================================
       - name: Preparar archivos para publicación
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./site
 
-      # 13. Publicar
+      # =====================================================
+      # 14. PUBLICAR GITHUB PAGES
+      # =====================================================
       - name: Publicar GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      # =====================================================
+      # 15. MOSTRAR URL PUBLICADA
+      # =====================================================
+      - name: Mostrar URL de la web
+        run: |
+          echo "===================================="
+          echo "IUVPY PUBLICADO CORRECTAMENTE"
+          echo "===================================="
+          echo "${{ steps.deployment.outputs.page_url }}"
