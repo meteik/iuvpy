@@ -2,10 +2,6 @@
 name: Generar pronóstico IUVPY
 
 on:
-  push:
-    branches:
-      - main
-
   schedule:
     - cron: "0 12 * * *" # CAMS 00Z - 09:00 Paraguay
     - cron: "0 19 * * *" # GFS 12Z - 16:00 Paraguay
@@ -31,7 +27,7 @@ permissions:
 
 concurrency:
   group: github-pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   generar:
