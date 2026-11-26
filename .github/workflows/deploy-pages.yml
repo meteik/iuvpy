@@ -1,14 +1,20 @@
+
 name: Generar pronóstico IUVPY
 
 on:
+  push:
+    branches:
+      - main
+
   schedule:
     - cron: "0 12 * * *" # CAMS 00Z - 09:00 Paraguay
     - cron: "0 19 * * *" # GFS 12Z - 16:00 Paraguay
     - cron: "0 23 * * *" # CAMS 12Z - 20:00 Paraguay
+
   workflow_dispatch:
     inputs:
       modelo:
-        description: "Modelo a ejecutar manualmente"
+        description: "Modelo a ejecutar"
         required: true
         type: choice
         default: todos
@@ -25,11 +31,13 @@ permissions:
 
 concurrency:
   group: github-pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   generar:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+
     env:
       GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
       GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
@@ -61,37 +69,36 @@ jobs:
 
       - name: Configurar credenciales CAMS
         run: |
-          test -n "$ADS_API_KEY" || { echo "ERROR: Falta ADS_API_KEY"; exit 1; }
+          test -n "$ADS_API_KEY" || exit 1
           printf 'url: https://ads.atmosphere.copernicus.eu/api\nkey: %s\n' "$ADS_API_KEY" > "$HOME/.cdsapirc"
           chmod 600 "$HOME/.cdsapirc"
 
-      - name: Verificar estructura y secretos
+      - name: Verificar archivos y secretos
         run: |
           set -e
           for f in run_iuvpy.py drive_sync.py requirements.txt scripts/gfs_iuv.py scripts/cams_iuv.py assets/Departamentos_Paraguay.shp assets/Departamentos_Paraguay.shx assets/Departamentos_Paraguay.dbf assets/Departamentos_Paraguay.prj assets/NORTE.png site/index.html; do
             test -f "$f" || { echo "Falta archivo: $f"; exit 1; }
           done
           for v in GOOGLE_DRIVE_FOLDER_ID GOOGLE_REFRESH_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET; do
-            test -n "${!v}" || { echo "ERROR: Falta secreto $v"; exit 1; }
+            test -n "${!v}" || { echo "Falta secreto: $v"; exit 1; }
           done
-          echo "Estructura y credenciales verificadas."
 
       - name: Ejecutar CAMS 00Z
-        if: (github.event_name == 'schedule' && github.event.schedule == '0 12 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'cams00' || inputs.modelo == 'todos'))
+        if: github.event_name == 'push' || (github.event_name == 'schedule' && github.event.schedule == '0 12 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'cams00' || inputs.modelo == 'todos'))
         env:
           IUVPY_MODEL: cams
           RUN_HOUR: "00"
         run: python run_iuvpy.py
 
       - name: Ejecutar GFS 12Z
-        if: (github.event_name == 'schedule' && github.event.schedule == '0 19 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'gfs12' || inputs.modelo == 'todos'))
+        if: github.event_name == 'push' || (github.event_name == 'schedule' && github.event.schedule == '0 19 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'gfs12' || inputs.modelo == 'todos'))
         env:
           IUVPY_MODEL: gfs
           RUN_HOUR: "12"
         run: python run_iuvpy.py
 
       - name: Ejecutar CAMS 12Z
-        if: (github.event_name == 'schedule' && github.event.schedule == '0 23 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'cams12' || inputs.modelo == 'todos'))
+        if: github.event_name == 'push' || (github.event_name == 'schedule' && github.event.schedule == '0 23 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'cams12' || inputs.modelo == 'todos'))
         env:
           IUVPY_MODEL: cams
           RUN_HOUR: "12"
@@ -100,19 +107,15 @@ jobs:
 
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$HORA_UTC" -lt 23 ]; then
             RUN_DATE=$(date -u -d "yesterday" +%Y%m%d)
-            echo "Ejecución manual antes de las 23 UTC."
-            echo "Se utilizará CAMS 12Z del día anterior: $RUN_DATE"
           else
             RUN_DATE=$(date -u +%Y%m%d)
-            echo "Se utilizará CAMS 12Z del día actual: $RUN_DATE"
           fi
 
           echo "RUN_DATE=$RUN_DATE" >> "$GITHUB_ENV"
           export RUN_DATE
-
           python run_iuvpy.py
 
-      - name: Verificar mapas publicados
+      - name: Verificar mapas
         run: |
           set -e
           test -s site/index.html
@@ -137,5 +140,4 @@ jobs:
         uses: actions/deploy-pages@v4
 
       - name: Mostrar URL
-        run: |
-          echo "IUVPY publicado: ${{ steps.deployment.outputs.page_url }}"
+        run: echo "Publicado en ${{ steps.deployment.outputs.page_url }}"
