@@ -5,21 +5,17 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: "0 12 * * *"
-    - cron: "0 19 * * *"
-    - cron: "0 23 * * *"
+    - cron: "0 12 * * *" # CAMS 00Z - 09:00 Paraguay
+    - cron: "0 19 * * *" # GFS 12Z - 16:00 Paraguay
+    - cron: "0 23 * * *" # CAMS 12Z - 20:00 Paraguay
   workflow_dispatch:
     inputs:
       modelo:
-        description: Modelo a ejecutar
+        description: "Modelo a ejecutar"
         required: true
         type: choice
         default: todos
-        options:
-          - todos
-          - cams00
-          - gfs12
-          - cams12
+        options: [todos, cams00, gfs12, cams12]
 
 permissions:
   contents: read
@@ -27,13 +23,16 @@ permissions:
   id-token: write
 
 concurrency:
-  group: github-pages
+  group: iuvpy-pages
   cancel-in-progress: false
 
 jobs:
   generar:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
     env:
       GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
       GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
@@ -43,16 +42,20 @@ jobs:
       MPLBACKEND: Agg
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Configurar Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements.txt
 
-      - name: Fecha UTC
-        run: echo "RUN_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
+      - name: Configurar fecha UTC
+        run: |
+          echo "RUN_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
+          date -u
 
       - name: Instalar dependencias
         run: |
@@ -61,7 +64,7 @@ jobs:
 
       - name: Configurar CAMS
         run: |
-          test -n "$ADS_API_KEY" || exit 1
+          test -n "$ADS_API_KEY" || { echo "Falta ADS_API_KEY"; exit 1; }
           printf 'url: https://ads.atmosphere.copernicus.eu/api\nkey: %s\n' "$ADS_API_KEY" > "$HOME/.cdsapirc"
           chmod 600 "$HOME/.cdsapirc"
 
@@ -76,32 +79,38 @@ jobs:
           done
 
       - name: Ejecutar CAMS 00Z
-        if: github.event_name == 'push' || (github.event_name == 'schedule' && github.event.schedule == '0 12 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'cams00' || inputs.modelo == 'todos'))
+        if: (github.event_name == 'schedule' && github.event.schedule == '0 12 * * *') || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'cams00' || inputs.modelo == 'todos'))
+        continue-on-error: true
         env:
           IUVPY_MODEL: cams
           RUN_HOUR: "00"
         run: python run_iuvpy.py
 
       - name: Ejecutar GFS 12Z
-        if: github.event_name == 'push' || (github.event_name == 'schedule' && github.event.schedule == '0 19 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'gfs12' || inputs.modelo == 'todos'))
+        if: (github.event_name == 'schedule' && github.event.schedule == '0 19 * * *') || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'gfs12' || inputs.modelo == 'todos'))
+        continue-on-error: true
         env:
           IUVPY_MODEL: gfs
           RUN_HOUR: "12"
         run: python run_iuvpy.py
 
       - name: Ejecutar CAMS 12Z
-        if: github.event_name == 'push' || (github.event_name == 'schedule' && github.event.schedule == '0 23 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'cams12' || inputs.modelo == 'todos'))
+        if: (github.event_name == 'schedule' && github.event.schedule == '0 23 * * *') || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'cams12' || inputs.modelo == 'todos'))
         continue-on-error: true
         env:
           IUVPY_MODEL: cams
           RUN_HOUR: "12"
         run: |
-          HORA=$(date -u +%H)
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$HORA" -lt 23 ]; then
+          HORA_UTC=$(date -u +%H)
+
+          if [ "$GITHUB_EVENT_NAME" != "schedule" ] && [ "$HORA_UTC" -lt 23 ]; then
             RUN_DATE=$(date -u -d "yesterday" +%Y%m%d)
+            echo "CAMS 12Z: se intentará la corrida del día anterior: $RUN_DATE"
           else
             RUN_DATE=$(date -u +%Y%m%d)
+            echo "CAMS 12Z: se intentará la corrida del día actual: $RUN_DATE"
           fi
+
           echo "RUN_DATE=$RUN_DATE" >> "$GITHUB_ENV"
           export RUN_DATE
           python run_iuvpy.py
@@ -114,19 +123,22 @@ jobs:
           test -s site/maps/CAMS_00_latest.png
           test -s site/maps/CAMS_12_latest.png
           test -s site/status.json
+          echo "Mapas disponibles para publicar:"
+          ls -lh site/maps
 
-      - uses: actions/configure-pages@v5
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
 
-      - name: Subir sitio
-        uses: actions/upload-pages-artifact@v3
+      - name: Subir artefacto GitHub Pages
+        uses: actions/upload-pages-artifact@v4
         with:
           name: github-pages
           path: ./site
           retention-days: 1
 
-      - name: Publicar sitio
+      - name: Publicar GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
 
-      - name: URL publicada
-        run: echo "Publicado en ${{ steps.deployment.outputs.page_url }}"
+      - name: Mostrar URL
+        run: echo "IUVPY publicado en ${{ steps.deployment.outputs.page_url }}"
