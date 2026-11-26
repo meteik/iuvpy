@@ -1,0 +1,26 @@
+
+name: Prueba automática cron
+
+on:
+  schedule:
+    - cron: "*/5 * * * *" # Cada 5 minutos UTC
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prueba-cron:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Confirmar ejecución automática
+        run: |
+          echo "===================================="
+          echo "PRUEBA DE CRON AUTOMÁTICO"
+          echo "GitHub Actions se inició correctamente"
+          echo "Fecha y hora UTC:"
+          date -u
+          echo "Expresión cron: */5 * * * *"
+          echo "===================================="
