@@ -1,4 +1,3 @@
-
 name: Generar pronóstico IUVPY
 
 on:
@@ -6,7 +5,6 @@ on:
     - cron: "0 12 * * *" # CAMS 00Z - 09:00 Paraguay
     - cron: "0 19 * * *" # GFS 12Z - 16:00 Paraguay
     - cron: "0 23 * * *" # CAMS 12Z - 20:00 Paraguay
-
   workflow_dispatch:
     inputs:
       modelo:
@@ -27,7 +25,7 @@ permissions:
 
 concurrency:
   group: github-pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   generar:
@@ -98,9 +96,20 @@ jobs:
           IUVPY_MODEL: cams
           RUN_HOUR: "12"
         run: |
-          RUN_DATE=$(date -u +%Y%m%d)
+          HORA_UTC=$(date -u +%H)
+
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$HORA_UTC" -lt 23 ]; then
+            RUN_DATE=$(date -u -d "yesterday" +%Y%m%d)
+            echo "Ejecución manual antes de las 23 UTC."
+            echo "Se utilizará CAMS 12Z del día anterior: $RUN_DATE"
+          else
+            RUN_DATE=$(date -u +%Y%m%d)
+            echo "Se utilizará CAMS 12Z del día actual: $RUN_DATE"
+          fi
+
           echo "RUN_DATE=$RUN_DATE" >> "$GITHUB_ENV"
           export RUN_DATE
+
           python run_iuvpy.py
 
       - name: Verificar mapas publicados
