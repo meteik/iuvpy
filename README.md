@@ -1,6 +1,7 @@
-# IUVPY — Pronóstico automático del Índice UV de Paraguay
+# IUVPY
+# Pronóstico del IUV sobre Paraguay
 
-Automatización de pronósticos de Índice Ultravioleta con GFS y CAMS/ECMWF, publicación de mapas y archivo de corridas en Google Drive.
+Automatización de pronósticos del Índice Ultravioleta con GFS y CAMS/ECMWF, publicación de mapas y archivo de corridas en Google Drive.
 
 ## Instalación
 Ver [README_SETUP.md](README_SETUP.md) para cargar archivos, configurar secretos y habilitar GitHub Pages.
