@@ -3,13 +3,12 @@ name: Generar pronóstico IUVPY
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
 
   schedule:
-    - cron: "0 12 * * *" # CAMS 00Z - 09:00 Paraguay
-    - cron: "0 19 * * *" # GFS 12Z - 16:00 Paraguay
-    - cron: "0 23 * * *" # CAMS 12Z - 20:00 Paraguay
+    - cron: "0 12 * * *"
+    - cron: "0 19 * * *"
+    - cron: "0 23 * * *"
 
   workflow_dispatch:
     inputs:
@@ -18,11 +17,7 @@ on:
         required: true
         type: choice
         default: todos
-        options:
-          - todos
-          - cams00
-          - gfs12
-          - cams12
+        options: [todos, cams00, gfs12, cams12]
 
 permissions:
   contents: read
@@ -58,9 +53,7 @@ jobs:
           cache-dependency-path: requirements.txt
 
       - name: Configurar fecha UTC
-        run: |
-          echo "RUN_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
-          date -u
+        run: echo "RUN_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
 
       - name: Instalar dependencias
         run: |
@@ -98,19 +91,18 @@ jobs:
         run: python run_iuvpy.py
 
       - name: Ejecutar CAMS 12Z
+        continue-on-error: true
         if: github.event_name == 'push' || (github.event_name == 'schedule' && github.event.schedule == '0 23 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'cams12' || inputs.modelo == 'todos'))
         env:
           IUVPY_MODEL: cams
           RUN_HOUR: "12"
         run: |
           HORA_UTC=$(date -u +%H)
-
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$HORA_UTC" -lt 23 ]; then
             RUN_DATE=$(date -u -d "yesterday" +%Y%m%d)
           else
             RUN_DATE=$(date -u +%Y%m%d)
           fi
-
           echo "RUN_DATE=$RUN_DATE" >> "$GITHUB_ENV"
           export RUN_DATE
           python run_iuvpy.py
@@ -140,4 +132,4 @@ jobs:
         uses: actions/deploy-pages@v4
 
       - name: Mostrar URL
-        run: echo "Publicado en ${{ steps.deployment.outputs.page_url }}"
+        run: echo "IUVPY publicado: ${{ steps.deployment.outputs.page_url }}"
