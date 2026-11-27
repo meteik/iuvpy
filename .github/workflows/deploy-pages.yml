@@ -1,13 +1,15 @@
-
 name: Generar pronóstico IUVPY
 
 on:
+  # Push solo republica la página con lo que hay en Drive (no gasta cuota de ADS).
   push:
     branches: [main]
+    paths: ["site/**"]
   schedule:
-    - cron: "0 12 * * *" # CAMS 00Z - 09:00 Paraguay
-    - cron: "0 19 * * *" # GFS 12Z - 16:00 Paraguay
-    - cron: "0 23 * * *" # CAMS 12Z - 20:00 Paraguay
+    # Minutos "raros" a propósito: a la hora en punto GitHub está más saturado.
+    - cron: "13 11 * * *" # CAMS 00Z
+    - cron: "17 20 * * *" # GFS 12Z
+    - cron: "23 23 * * *" # CAMS 12Z
   workflow_dispatch:
     inputs:
       modelo:
@@ -15,12 +17,13 @@ on:
         required: true
         type: choice
         default: todos
-        options: [todos, cams00, gfs12, cams12]
+        options: [todos, cams00, gfs12, cams12, solo_sitio]
 
 permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write # solo para el keepalive de cron
 
 concurrency:
   group: iuvpy-pages
@@ -29,6 +32,7 @@ concurrency:
 jobs:
   generar:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -45,6 +49,35 @@ jobs:
       - name: Descargar repositorio
         uses: actions/checkout@v4
 
+      - name: Decidir qué ejecutar
+        id: plan
+        env:
+          EVENTO: ${{ github.event_name }}
+          CRON: ${{ github.event.schedule }}
+          MODELO: ${{ inputs.modelo }}
+        run: |
+          c00=false; gfs=false; c12=false
+          case "$EVENTO" in
+            schedule)
+              case "$CRON" in
+                "13 11 * * *") c00=true ;;
+                "17 20 * * *") gfs=true ;;
+                "23 23 * * *") c12=true ;;
+              esac ;;
+            workflow_dispatch)
+              case "$MODELO" in
+                cams00) c00=true ;;
+                gfs12)  gfs=true ;;
+                cams12) c12=true ;;
+                todos)  c00=true; gfs=true; c12=true ;;
+              esac ;;
+          esac
+          echo "cams00=$c00" >> "$GITHUB_OUTPUT"
+          echo "gfs12=$gfs"  >> "$GITHUB_OUTPUT"
+          echo "cams12=$c12" >> "$GITHUB_OUTPUT"
+          echo "Plan: cams00=$c00 gfs12=$gfs cams12=$c12"
+          date -u
+
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
@@ -52,15 +85,16 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
-      - name: Configurar fecha UTC
-        run: |
-          echo "RUN_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
-          date -u
-
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Caché del DEM
+        uses: actions/cache@v4
+        with:
+          path: output/DEM_PY.tif
+          key: dem-py-v1
 
       - name: Configurar CAMS
         run: |
@@ -78,42 +112,42 @@ jobs:
             test -n "${!v}" || { echo "Falta secreto: $v"; exit 1; }
           done
 
-      - name: Ejecutar CAMS 00Z
-        if: (github.event_name == 'schedule' && github.event.schedule == '0 12 * * *') || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'cams00' || inputs.modelo == 'todos'))
-        continue-on-error: true
-        env:
-          IUVPY_MODEL: cams
-          RUN_HOUR: "00"
-        run: python run_iuvpy.py
-
-      - name: Ejecutar GFS 12Z
-        if: (github.event_name == 'schedule' && github.event.schedule == '0 19 * * *') || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'gfs12' || inputs.modelo == 'todos'))
-        continue-on-error: true
-        env:
-          IUVPY_MODEL: gfs
-          RUN_HOUR: "12"
-        run: python run_iuvpy.py
-
-      - name: Ejecutar CAMS 12Z
-        if: (github.event_name == 'schedule' && github.event.schedule == '0 23 * * *') || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.modelo == 'cams12' || inputs.modelo == 'todos'))
-        continue-on-error: true
-        env:
-          IUVPY_MODEL: cams
-          RUN_HOUR: "12"
+      # Cada modelo calcula SU fecha de corrida según cuánto tarda en existir el dato:
+      #   CAMS 00Z: ~11 h | GFS 12Z: 12 h + ~4 h = 16 h | CAMS 12Z: 12 h + ~11 h = 23 h
+      # Así no importa si el cron se atrasa o si lo lanzás a mano a cualquier hora.
+      - name: Ejecutar modelos
+        id: modelos
         run: |
-          HORA_UTC=$(date -u +%H)
+          fallos=0
+          correr() {  # $1=modelo  $2=hora Z  $3=horas hasta que el dato existe
+            local fecha intento
+            fecha=$(date -u -d "-$3 hours" +%Y%m%d)
+            for intento in 1 2 3 4; do
+              echo "::group::$1 ${2}Z, corrida $fecha (intento $intento)"
+              if IUVPY_MODEL="$1" RUN_HOUR="$2" RUN_DATE="$fecha" python run_iuvpy.py; then
+                echo "::endgroup::"
+                return 0
+              fi
+              echo "::endgroup::"
+              if [ "$intento" -lt 4 ]; then
+                echo "Falló; reintento en 15 min (el dato puede no estar publicado aún)"
+                sleep 900
+              fi
+            done
+            echo "::error::Falló $1 ${2}Z para la corrida $fecha"
+            return 1
+          }
 
-          if [ "$GITHUB_EVENT_NAME" != "schedule" ] && [ "$HORA_UTC" -lt 23 ]; then
-            RUN_DATE=$(date -u -d "yesterday" +%Y%m%d)
-            echo "CAMS 12Z: se intentará la corrida del día anterior: $RUN_DATE"
-          else
-            RUN_DATE=$(date -u +%Y%m%d)
-            echo "CAMS 12Z: se intentará la corrida del día actual: $RUN_DATE"
-          fi
+          if [ "${{ steps.plan.outputs.cams00 }}" = "true" ]; then correr cams 00 11 || fallos=1; fi
+          if [ "${{ steps.plan.outputs.gfs12 }}"  = "true" ]; then correr gfs  12 16 || fallos=1; fi
+          if [ "${{ steps.plan.outputs.cams12 }}" = "true" ]; then correr cams 12 23 || fallos=1; fi
 
-          echo "RUN_DATE=$RUN_DATE" >> "$GITHUB_ENV"
-          export RUN_DATE
-          python run_iuvpy.py
+          echo "fallos=$fallos" >> "$GITHUB_OUTPUT"
+
+      # Cuando no se ejecutó ningún modelo (push o solo_sitio), traer el estado de Drive.
+      - name: Restaurar sitio desde Drive
+        if: steps.plan.outputs.cams00 != 'true' && steps.plan.outputs.gfs12 != 'true' && steps.plan.outputs.cams12 != 'true'
+        run: python -c "from drive_sync import download_site_state; download_site_state('site/maps', 'site')"
 
       - name: Verificar mapas
         run: |
@@ -142,3 +176,19 @@ jobs:
 
       - name: Mostrar URL
         run: echo "IUVPY publicado en ${{ steps.deployment.outputs.page_url }}"
+
+      # Se publica igual (con los mapas anteriores), pero el run queda en ROJO
+      # para que GitHub te mande el aviso de falla por email.
+      - name: Marcar falla si algún modelo falló
+        if: steps.modelos.outputs.fallos == '1'
+        run: |
+          echo "::error::Al menos un modelo falló; revisá el paso 'Ejecutar modelos'."
+          exit 1
+
+      # Evita que GitHub desactive los cron tras 60 días sin actividad en el repo.
+      - name: Keepalive del cron
+        if: always() && github.event_name == 'schedule'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow enable "${{ github.workflow }}" --repo "${{ github.repository }}"
