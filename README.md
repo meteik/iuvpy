@@ -8,7 +8,7 @@ Ver [README_SETUP.md](README_SETUP.md) para cargar archivos, configurar secretos
 
 ## Modelos y horarios UTC
 - CAMS 00Z: disponible desde las 10:00 UTC
-- GFS 12Z: disponible desde las 18:00 UTC
+- GFS 12Z: disponible desde las 19:00 UTC
 - CAMS 12Z: disponible desde las 22:00 UTC
 
 ## Página
